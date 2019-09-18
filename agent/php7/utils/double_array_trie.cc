@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-#include "DoubleArrayTrie.h"
+#include "double_array_trie.h"
 
 namespace openrasp
 {
@@ -84,7 +84,9 @@ size_t DoubleArrayTrie::nonzero_size() const
     for (size_t i = 0; i < size_; ++i)
     {
         if (array_[i].check)
+        {
             ++result;
+        }
     }
     return result;
 }
@@ -113,6 +115,7 @@ int DoubleArrayTrie::build(size_t key_size, const std::vector<std::string> *key,
     next_check_pos_ = 0;
 
     node_t root_node;
+    root_node.code = 0;
     root_node.left = 0;
     root_node.right = key_size;
     root_node.depth = 0;
@@ -130,12 +133,14 @@ int DoubleArrayTrie::build(size_t key_size, const std::vector<std::string> *key,
 size_t DoubleArrayTrie::prefix_search(const char *key, result_pair_type *result, size_t result_len, size_t len, size_t node_pos) const
 {
     if (!len)
+    {
         len = std::strlen(key);
+    }
 
     register int b = array_[node_pos].base;
     register size_t num = 0;
-    register int n;
-    register unsigned int p;
+    register int n = 0;
+    register unsigned int p = 0;
 
     for (register size_t i = 0; i < len; ++i)
     {
@@ -167,7 +172,9 @@ size_t DoubleArrayTrie::prefix_search(const char *key, result_pair_type *result,
     if ((unsigned int)b == array_[p].check && n < 0)
     {
         if (num < result_len)
+        {
             set_result(&result[num], -n - 1, len);
+        }
         ++num;
     }
 
@@ -204,8 +211,10 @@ size_t DoubleArrayTrie::fetch(const node_t &parent, std::vector<node_t> &sibling
 
         unsigned int cur = 0;
         if ((length_ ? length_[i] : key_->at(i).length()) != parent.depth)
+        {
             cur = (unsigned int)tmp[parent.depth] + 1;
-
+        }
+            
         if (prev > cur)
         {
             error_ = -3;
@@ -218,6 +227,7 @@ size_t DoubleArrayTrie::fetch(const node_t &parent, std::vector<node_t> &sibling
             tmp_node.depth = parent.depth + 1;
             tmp_node.code = cur;
             tmp_node.left = i;
+            tmp_node.right = i;
             if (!siblings.empty())
             {
                 siblings[siblings.size() - 1].right = i;
@@ -240,7 +250,9 @@ size_t DoubleArrayTrie::fetch(const node_t &parent, std::vector<node_t> &sibling
 size_t DoubleArrayTrie::insert(const std::vector<node_t> &siblings)
 {
     if (error_ < 0)
+    {
         return 0;
+    }
 
     size_t begin = 0;
     size_t pos = max((size_t)siblings[0].code + 1, next_check_pos_) - 1;
@@ -275,20 +287,31 @@ size_t DoubleArrayTrie::insert(const std::vector<node_t> &siblings)
 
         begin = pos - siblings[0].code;
         if (alloc_size_ <= (begin + siblings[siblings.size() - 1].code))
+        {
             resize(static_cast<size_t>(alloc_size_ * max(1.05, 1.0 * key_size_ / progress_)));
+        }
 
         if (used_[begin])
+        {
             continue;
+        }
 
         for (size_t i = 1; i < siblings.size(); ++i)
+        {
             if (array_[begin + siblings[i].code].check != 0)
+            {
                 goto next;
+            }
+        }
 
         break;
     }
 
     if (1.0 * nonzero_num / (pos - next_check_pos_ + 1) >= 0.95)
+    {
         next_check_pos_ = pos;
+    }
+        
 
     used_[begin] = 1;
     size_ = max(size_, begin + static_cast<size_t>(siblings[siblings.size() - 1].code + 1));

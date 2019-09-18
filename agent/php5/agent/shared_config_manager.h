@@ -21,9 +21,9 @@
 #include "base_manager.h"
 #include <memory>
 #include <map>
-#include "utils/ReadWriteLock.h"
+#include "utils/read_write_lock.h"
 #include "shared_config_block.h"
-#include "utils/BaseReader.h"
+#include "utils/base_reader.h"
 
 namespace openrasp
 {
@@ -53,6 +53,9 @@ public:
 
   bool set_buildin_check_action(std::map<OpenRASPCheckType, OpenRASPActionType> buildin_action_map);
   OpenRASPActionType get_buildin_check_action(OpenRASPCheckType check_type);
+
+  void set_sql_error_codes(std::vector<long> error_codes);
+  bool sql_error_code_exist(long err_code);
 
 private:
   int meta_size;

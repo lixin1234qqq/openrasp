@@ -14,8 +14,9 @@
  * limitations under the License.
  */
 
-#include "utils/JsonReader.h"
-#include "utils/YamlReader.h"
+#include "utils/json_reader.h"
+#include "utils/yaml_reader.h"
+#include "utils/string.h"
 #include "openrasp.h"
 #include "openrasp_ini.h"
 
@@ -48,6 +49,7 @@ using openrasp::ConfigHolder;
 
 ZEND_DECLARE_MODULE_GLOBALS(openrasp);
 
+const char *OpenRASPInfo::PHP_OPENRASP_VERSION = "1.2.0";
 bool is_initialized = false;
 bool remote_active = false;
 static bool make_openrasp_root_dir();
@@ -64,9 +66,11 @@ PHP_INI_ENTRY1("openrasp.locale", "", PHP_INI_SYSTEM, OnUpdateOpenraspCString, &
 PHP_INI_ENTRY1("openrasp.backend_url", "", PHP_INI_SYSTEM, OnUpdateOpenraspCString, &openrasp_ini.backend_url)
 PHP_INI_ENTRY1("openrasp.app_id", "", PHP_INI_SYSTEM, OnUpdateOpenraspCString, &openrasp_ini.app_id)
 PHP_INI_ENTRY1("openrasp.app_secret", "", PHP_INI_SYSTEM, OnUpdateOpenraspCString, &openrasp_ini.app_secret)
+PHP_INI_ENTRY1("openrasp.rasp_id", "", PHP_INI_SYSTEM, OnUpdateOpenraspCString, &openrasp_ini.rasp_id)
 PHP_INI_ENTRY1("openrasp.remote_management_enable", "off", PHP_INI_SYSTEM, OnUpdateOpenraspBool, &openrasp_ini.remote_management_enable)
 PHP_INI_ENTRY1("openrasp.heartbeat_interval", "180", PHP_INI_SYSTEM, OnUpdateOpenraspHeartbeatInterval, &openrasp_ini.heartbeat_interval)
 PHP_INI_ENTRY1("openrasp.ssl_verifypeer", "off", PHP_INI_SYSTEM, OnUpdateOpenraspBool, &openrasp_ini.ssl_verifypeer)
+PHP_INI_ENTRY1("openrasp.iast_enable", "off", PHP_INI_SYSTEM, OnUpdateOpenraspBool, &openrasp_ini.iast_enable)
 PHP_INI_END()
 
 PHP_GINIT_FUNCTION(openrasp)
@@ -106,6 +110,11 @@ PHP_MINIT_FUNCTION(openrasp)
     {
         return SUCCESS;
     }
+    if (!openrasp_ini.verify_rasp_id())
+    {
+        openrasp_error(LEVEL_WARNING, CONFIG_ERROR, _("openrasp.rasp_id can only contain alphanumeric characters and is between 16 and 512 in length."));
+        return SUCCESS;
+    }
     openrasp::scm.reset(new openrasp::SharedConfigManager());
     if (!openrasp::scm->startup())
     {
@@ -117,8 +126,10 @@ PHP_MINIT_FUNCTION(openrasp)
     if (need_alloc_shm_current_sapi() && openrasp_ini.remote_management_enable)
     {
         openrasp::oam.reset(new openrasp::OpenraspAgentManager());
-        if (!verify_remote_management_ini())
+        std::string error_msg;
+        if (!openrasp_ini.verify_remote_management_ini(error_msg))
         {
+            openrasp_error(LEVEL_WARNING, CONFIG_ERROR, error_msg.c_str());
             return SUCCESS;
         }
         remote_active = true;
@@ -252,7 +263,7 @@ PHP_MINFO_FUNCTION(openrasp)
 {
     php_info_print_table_start();
     php_info_print_table_row(2, "Status", is_initialized ? "Protected" : "Unprotected, Initialization Failed");
-    php_info_print_table_row(2, "Version", PHP_OPENRASP_VERSION);
+    php_info_print_table_row(2, "Version", OpenRASPInfo::PHP_OPENRASP_VERSION);
 #ifdef OPENRASP_BUILD_TIME
     php_info_print_table_row(2, "Build Time", OPENRASP_BUILD_TIME);
 #endif
@@ -298,7 +309,7 @@ zend_module_entry openrasp_module_entry = {
     PHP_RINIT(openrasp),
     PHP_RSHUTDOWN(openrasp),
     PHP_MINFO(openrasp),
-    PHP_OPENRASP_VERSION,
+    OpenRASPInfo::PHP_OPENRASP_VERSION,
     STANDARD_MODULE_PROPERTIES};
 
 #ifdef COMPILE_DL_OPENRASP
@@ -333,10 +344,10 @@ static bool make_openrasp_root_dir()
         "conf",
         "plugins",
         "locale",
-        "logs" + default_slash + ALARM_LOG_DIR_NAME,
-        "logs" + default_slash + POLICY_LOG_DIR_NAME,
-        "logs" + default_slash + PLUGIN_LOG_DIR_NAME,
-        "logs" + default_slash + RASP_LOG_DIR_NAME};
+        "logs" + default_slash + RaspLoggerEntry::ALARM_LOG_DIR_NAME,
+        "logs" + default_slash + RaspLoggerEntry::POLICY_LOG_DIR_NAME,
+        "logs" + default_slash + RaspLoggerEntry::PLUGIN_LOG_DIR_NAME,
+        "logs" + default_slash + RaspLoggerEntry::RASP_LOG_DIR_NAME};
     for (auto dir : sub_dir_list)
     {
         std::string path(root_dir + DEFAULT_SLASH + dir);
@@ -347,7 +358,8 @@ static bool make_openrasp_root_dir()
         }
     }
 #ifdef HAVE_GETTEXT
-    if (nullptr != setlocale(LC_ALL, (nullptr == openrasp_ini.locale || strcmp(openrasp_ini.locale, "") == 0) ? "C" : openrasp_ini.locale))
+    static const char *GETTEXT_PACKAGE = "openrasp";
+    if (nullptr != setlocale(LC_ALL, (openrasp::empty(openrasp_ini.locale)) ? "C" : openrasp_ini.locale))
     {
         std::string locale_path(root_dir + DEFAULT_SLASH + "locale" + DEFAULT_SLASH);
         if (!bindtextdomain(GETTEXT_PACKAGE, locale_path.c_str()))
@@ -388,7 +400,7 @@ static std::string get_config_abs_path(ConfigHolder::FromType type)
 
 static bool update_config(openrasp::ConfigHolder *config, ConfigHolder::FromType type)
 {
-    if (nullptr != openrasp_ini.root_dir && strcmp(openrasp_ini.root_dir, "") != 0)
+    if (!openrasp::empty(openrasp_ini.root_dir))
     {
         std::string config_file_path = get_config_abs_path(type);
         std::string conf_contents;
@@ -459,7 +471,7 @@ static void hook_without_params(OpenRASPCheckType check_type)
         v8::HandleScope handle_scope(isolate);
         auto params = v8::Object::New(isolate);
         check_result = Check(isolate, openrasp::NewV8String(isolate, get_check_type_name(check_type)), params,
-                                  OPENRASP_CONFIG(plugin.timeout.millis));
+                             OPENRASP_CONFIG(plugin.timeout.millis));
     }
     if (check_result == openrasp::CheckResult::kBlock)
     {

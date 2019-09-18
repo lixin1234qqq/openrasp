@@ -71,7 +71,7 @@ CheckResult Check(Isolate *isolate, v8::Local<v8::String> type, v8::Local<v8::Ob
             auto message = obj->Get(context, NewV8String(isolate, "message")).FromMaybe(v8::Local<v8::Value>());
             if (!message.IsEmpty() && message->IsString())
             {
-                plugin_info(isolate, std::string(*v8::String::Utf8Value(isolate, message)) + "\n");
+                plugin_log(std::string(*v8::String::Utf8Value(isolate, message)) + "\n");
             }
             continue;
         }
@@ -174,7 +174,7 @@ v8::Local<v8::Value> NewV8ValueFromZval(v8::Isolate *isolate, zval *val)
     return rst;
 }
 
-void plugin_info(Isolate *isolate, const std::string &message)
+void plugin_log(const std::string &message)
 {
     LOG_G(plugin_logger).log(LEVEL_INFO, message.c_str(), message.length(), false, true);
 }
@@ -224,8 +224,8 @@ void alarm_info(Isolate *isolate, v8::Local<v8::String> type, v8::Local<v8::Obje
         obj->Set(NewV8String(isolate, "source_code"), source_code);
     }
 
-    zval *value;
-    zend_string *key;
+    zval *value = nullptr;
+    zend_string *key = nullptr;
     zval *alarm_common_info = LOG_G(alarm_logger).get_common_info();
     ZEND_HASH_FOREACH_STR_KEY_VAL(Z_ARRVAL_P(alarm_common_info), key, value)
     {
@@ -320,6 +320,41 @@ void extract_buildin_action(Isolate *isolate, std::map<std::string, std::string>
         {
             iter->second = std::string(*value, value.length());
         }
+    }
+}
+
+void extract_sql_error_codes(Isolate *isolate, std::vector<long> &sql_error_codes, int limit)
+{
+    std::string script = R"(
+    (function () {
+        var sql_error_codes = [];
+        try {
+                sql_error_codes = RASP.algorithmConfig.sql_exception.error_code.filter((key, value) => typeof value === 'number');
+            } catch (_) {
+            }
+            return sql_error_codes
+        })()
+    )";
+    v8::HandleScope handle_scope(isolate);
+    auto context = isolate->GetCurrentContext();
+    auto rst = isolate->ExecScript(script, "extract_sql_error_codes");
+    if (rst.IsEmpty())
+    {
+        return;
+    }
+    auto arr = rst.ToLocalChecked().As<v8::Array>();
+    auto len = arr->Length();
+    if (len > limit)
+    {
+        openrasp_error(LEVEL_WARNING, PLUGIN_ERROR,
+                       _("Size of RASP.algorithmConfig.sql_exception.error_code must <= %d."), limit);
+    }
+    for (size_t i = 0; i < len; i++)
+    {
+        v8::HandleScope handle_scope(isolate);
+        v8::Local<v8::Integer> err_code_local = arr->Get(context, i).ToLocalChecked().As<v8::Integer>();
+        int64_t err_code = err_code_local->Value();
+        sql_error_codes.push_back(err_code);
     }
 }
 

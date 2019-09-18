@@ -195,7 +195,7 @@ public class HookHandler {
             requestCache.set(requestContainer);
             responseCache.set(responseContainer);
             XXEHook.resetLocalExpandedSystemIds();
-            doCheck(CheckParameter.Type.REQUEST, new Object());
+            doCheck(CheckParameter.Type.REQUEST, EMPTY_MAP);
         }
     }
 
@@ -212,7 +212,7 @@ public class HookHandler {
             DubboRequest requestContainer = new DubboRequest(request);
             requestCache.set(requestContainer);
             XXEHook.resetLocalExpandedSystemIds();
-            doCheck(CheckParameter.Type.REQUEST, new Object());
+            doCheck(CheckParameter.Type.REQUEST, EMPTY_MAP);
         }
     }
 
@@ -326,7 +326,7 @@ public class HookHandler {
      * @param type   检测类型
      * @param params 检测参数map，key为参数名，value为检测参数值
      */
-    public static void doRealCheckWithoutRequest(CheckParameter.Type type, Object params) {
+    public static void doRealCheckWithoutRequest(CheckParameter.Type type, Map params) {
         if (!enableHook.get()) {
             return;
         }
@@ -348,8 +348,11 @@ public class HookHandler {
         }
         if (a > 0) {
             long t = System.currentTimeMillis() - a;
+            String message = "type=" + type.getName() + " " + "time=" + t;
             if (requestCache.get() != null) {
-                LOGGER.info("request_id=" + requestCache.get().getRequestId() + " " + "type=" + type.getName() + " " + "time=" + t);
+                LOGGER.info("request_id=" + requestCache.get().getRequestId() + " " + message);
+            } else {
+                LOGGER.info(message);
             }
         }
         if (isBlock) {
@@ -363,7 +366,7 @@ public class HookHandler {
      * @param type   检测类型
      * @param params 检测参数map，key为参数名，value为检测参数值
      */
-    public static void doCheckWithoutRequest(CheckParameter.Type type, Object params) {
+    public static void doCheckWithoutRequest(CheckParameter.Type type, Map params) {
         //当服务器的cpu使用率超过90%，禁用全部hook点
         if (Config.getConfig().getDisableHooks()) {
             return;
@@ -390,7 +393,7 @@ public class HookHandler {
      * @param type   检测类型
      * @param params 检测参数map，key为参数名，value为检测参数值
      */
-    public static void doCheck(CheckParameter.Type type, Object params) {
+    public static void doCheck(CheckParameter.Type type, Map params) {
         if (enableCurrThreadHook.get()) {
             doCheckWithoutRequest(type, params);
         }
